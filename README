@@ -1,5 +1,5 @@
 A lua minfier and bundler.
 
 To run the test, execute the following commands
-- lua buildutils.lua test_output.lua example_project/entry.lua m1 example_project/module1.lua m2 example_project/module2.lua
-- lua test_output.lua
+- lua buildutils.lua testout.lua ./example_project/entry.lua
+- lua testout.lua
