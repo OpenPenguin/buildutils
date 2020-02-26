@@ -179,26 +179,39 @@ function merge(entrycode, modules)
     local bundlescript = ""
 
     -- build the module table
-    local modtable = "local _MODULES_ = {"
+    local modtable = "local _M={"
     for moduleID, module in pairs(modules) do
-        modtable = modtable .. "[\"" .. santiseString(moduleID) .. "\"]=\"" .. santiseString(module) .. "\","
+        local mout = module
+        mout = minifylib.minify(mout)
+        mout = santiseString(mout)
+
+        modtable = modtable .. "[\"" .. santiseString(moduleID) .. "\"]=\"" .. mout .. "\","
     end
     modtable = modtable .. "}"
-    bundlescript = bundlescript .. modtable
+    bundlescript = bundlescript
 
     -- add the bundlescript import method
-    bundlescript = bundlescript .. "function require(name) return assert(load(assert(_MODULES_[name], \"Bundled module not found!\")), \"Unable to load module script!\")() end\n"
+
+
+    -- bundlescript = bundlescript .. "local bsr = function(name) return assert(load(assert(_MODULES_[name], \"Bundled module not found!\")), \"Unable to load module script!\")() end\nrequire=bsr\n"
 
     -- add the main code
     bundlescript = bundlescript .. "\n" .. entrycode
 
-    return bundlescript
+    return bundlescript, modtable
+end
+
+function addHeader(script, modtable)
+    local header = modtable
+    header = header .. " " .. "function require(_n)return assert(load(assert(_M[_n],\"Bundled module not found!\")),\"Unable to load module script!\")()end;"
+
+    return header .. script
 end
 
 print("----------[ START ]----------")
 -- Start the bundler process
 local ec, ml = bundlify(entry)
-local bundle = merge(ec, ml)
+local bundle, mt = merge(ec, ml)
 
 print("------[ PRECOMPRESSED ]------")
 print(bundle)
@@ -206,6 +219,7 @@ print("------[ PRECOMPRESSED ]------")
 
 -- Minify the bundle
 local bundle_min = minifylib.minify(bundle)
+bundle_min = addHeader(bundle_min, mt)
 
 -- Export the bundle
 writeFile(output, bundle_min)
