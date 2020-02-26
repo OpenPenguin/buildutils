@@ -6,53 +6,23 @@
     The executable file!
 
     ARGUMENTS MUST GO IN THIS ORDER! Only thing that can be out of order is options!
-    buildutils [output] [entry point] ([module name] [module path])
+    buildutils [output] [entry]
 ]]
 
+-- Import libraries
 local minifylib = require("libraries/minifylib")
 
-function parseArguments(args)
-    local output = nil
-    local entry = nil
-    local modules = {}
-    local currentModule = {["name"]=nil, ["path"]=nil}
-    local options = {}
+-- Define constants
+local charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
-    for argumentNumber, argument in pairs(args) do
-        if string.sub(argument, 1, 2):lower() == "--" then
-            -- it's a flag!
-            table.insert(options, string.sub(argument, 2))
-        elseif string.sub(argument, 1, 1):lower() == "-" then
-            -- it's an option!
-            local opts = string.sub(argument, 2)
-            for char=1, string.len(opts) do
-                table.insert(options, string.sub(opts, char, char)) 
-            end
-        else
-            if output == nil then
-                -- the output always comes first
-                output = argument
-            elseif entry == nil then
-                entry = argument
-            else
-                if currentModule["name"] == nil then
-                    currentModule["name"] = argument
-                elseif currentModule["path"] == nil then
-                    currentModule["path"] = argument
-                    -- print("NAME: " .. currentModule["name"])
-                    -- print("PATH: " .. currentModule["path"])
-                    print("[ADDING MODULE] Name \"" .. currentModule["name"] .. "\", Path \"" .. currentModule["path"] .. "\"!")
-                    table.insert(modules, currentModule)
-                    currentModule = {["name"]=nil, ["path"]=nil}
-                end
-                -- How did we get here?
-            end
-        end
-    end
+-- Get the arguments
+local args = {...}
 
-    return output, entry, modules, options
-end
+-- Define some variables
+local output = args[1]
+local entry = args[2]
 
+-- Helper methods
 function readFile(filePath)
     local sourceFile = io.open(filePath, 'r')
     if not sourceFile then
@@ -62,7 +32,6 @@ function readFile(filePath)
     sourceFile:close()
     return data
 end
-
 function writeFile(filePath, data)
     local sourceFile = io.open(filePath, 'w')
     if not sourceFile then
@@ -73,42 +42,170 @@ function writeFile(filePath, data)
     return data
 end
 
-function processSource(source)
-
+function devisionWhole(a, b)
+    if a%b==a then return 0 end
+    return (a-(a%b)/b)
 end
 
-function convertModule(source)
-
+function intToBundleID(value)
+    local l = value % #charset
+    local m = devisionWhole(value, #charset)
+    local r = "m"
+    r = r .. charset:sub(l,l)
+    r = r .. m
+    return r
 end
 
-function main(_ARG)
-    -- The entry point!
-    local output, entry, modules, options = parseArguments(_ARG)
-    local entryCode = readFile(entry)
-    local bundleOutput = ""
-    local bundleModuleArray = "local _MODULES_={"
-
-    print("Compressing entry code")
-    entryCode = minifylib.minify(entryCode)
-
-    -- load all the modules in
-    print("Processing modules")
-    for _, module in pairs(modules) do
-        print("Importing module " .. module["name"])
-        local script = readFile(module["path"])
-        print("-----\n" .. script .. "\n-----")
-        local scriptMinified = minifylib.minify(script)
-        local scriptStringStripped = string.gsub(scriptMinified, '"', '\\"')
-        bundleModuleArray = bundleModuleArray .. "[\"" .. module["name"] .. "\"]=\"" .. scriptStringStripped .. "\","
+function splitFilePath(path)
+    local segments = {}
+    for segment in path:gmatch('([^/]*)/?') do
+        if segment == "" then
+            if #segments == 0 then
+                table.insert(segments, "/")
+            end
+        else
+            table.insert(segments, segment)
+        end
     end
-    bundleModuleArray = bundleModuleArray .. "}"
-    bundleOutput = bundleOutput .. "\n" .. bundleModuleArray
-    bundleOutput = bundleOutput .. "local _oreq=require function require(_n)if(_MODULES_[_n]~=nil)then return load(_MODULES_[_n])() else return _oreq(_n) end end"
-    bundleOutput = bundleOutput .. "\n"
-    bundleOutput = bundleOutput .. entryCode
-
-    print("exporting")
-    writeFile(output, bundleOutput)
+    return segments
 end
 
-main({...}) --  Pass the arguments to the entry-point method
+function dropLastPathValue(pathStr)
+    local path = splitFilePath(pathStr)
+    local result = ""
+    for i=1, ((#path) - 1) do
+        result = result .. path[i] .. "/"
+    end
+    local fchar = result:sub(1,1):lower()
+    if not ((fchar == "/") or (fchar == "~") or (fchar == ".")) then
+        result = "./" .. result
+    end
+    return result
+end
+
+function bundlify(entryPath)
+    local moduleLookupTable = {
+        -- ["a1"] = "~/path/to/file.lua"
+    }
+    local modules = {}
+    local toImport = {}
+    local currentModuleID = 1
+
+    local function sniffProgram(path)
+        -- read in the code
+        local filepath = path
+        if (path:sub(path:len() - 3):lower()) ~= ".lua" then
+            filepath = filepath .. ".lua"
+        end
+
+        local code = readFile(filepath)
+        -- find any 'require("somepath")' statments
+        for requiredModule in code:gmatch('require%("(.-)"%)') do
+            print("Found require statement in \"" .. filepath .. "\" => 'require(\"" .. requiredModule .. "\")")
+            local targetModulePath
+            local replacementID
+            local firstchar = requiredModule:sub(1,1):lower()
+            if (firstchar == "~") or (firstchar == "/") then
+                -- it is an ABSOLUTE path
+                targetModulePath = requiredModule:lower()
+            else
+                -- it is a RELATIVE path
+                local newpath = dropLastPathValue(path)
+                if newpath:sub(newpath:len()):lower() ~= "/" then
+                    newpath = newpath .. "/"
+                end
+                targetModulePath = (newpath .. requiredModule):lower()
+            end
+
+            -- check if this module has already been required (and indexed)
+            for ID, path in pairs(moduleLookupTable) do
+                if path == targetModulePath then
+                    replacementID = ID
+                end
+            end
+
+            -- check if an entry was found
+            if replacementID == nil then
+                -- nope!
+                replacementID = intToBundleID(currentModuleID)
+                currentModuleID = currentModuleID + 1
+                moduleLookupTable[replacementID] = targetModulePath
+                table.insert(toImport, replacementID) 
+            end
+
+            -- replace that require statment
+            local search = 'require("' .. requiredModule .. '")'
+            local replace = 'require("' .. replacementID .. '")'
+            local pattrf = 'require%("' .. requiredModule .. '"%)'
+            local pattrt = 'require("' .. replacementID .. '")'
+            print("FIND PATTERN: " .. pattrf)
+            print("REPLACE PATTERN: " .. pattrt)
+            code = code:gsub(pattrf, pattrt)
+            print("Replaced '" .. search .. "' with '" .. replace .. "' in \"" .. filepath .. "\"!")
+            print("----------[ PATCHED OUTPUT ]----------")
+            print(code)
+            print("----------[ PATCHED OUTPUT ]----------")
+        end
+
+        return code
+    end
+
+    local fixedEntry = sniffProgram(entryPath)
+
+    local ID = table.remove(toImport)
+    while ID ~= nil do
+        local modulePath = moduleLookupTable[ID]
+        local patchedSource = sniffProgram(modulePath)
+        modules[ID] = patchedSource
+        ID = table.remove(toImport)
+    end
+
+    return fixedEntry, modules
+end
+
+function santiseString(str)
+    str = str:gsub("\\", "\\\\")
+    str = str:gsub("\"", "\\\"")
+    str = str:gsub("\n", " ")
+    return str
+end
+
+-- WORKSPACE
+local _MODULES_ = {["MODULEID"]="LUA CODE AS STRING"}
+function bunreq(name) return load(assert(_MODULES_[name], "Bundled module not found!"))() end
+-- WORKSPACE
+
+function merge(entrycode, modules)
+    local bundlescript = ""
+
+    -- build the module table
+    local modtable = "local _MODULES_ = {"
+    for moduleID, module in pairs(modules) do
+        modtable = modtable .. "[\"" .. santiseString(moduleID) .. "\"]=\"" .. santiseString(module) .. "\","
+    end
+    modtable = modtable .. "}"
+    bundlescript = bundlescript .. modtable
+
+    -- add the bundlescript import method
+    bundlescript = bundlescript .. "function require(name) return assert(load(assert(_MODULES_[name], \"Bundled module not found!\")), \"Unable to load module script!\")() end\n"
+
+    -- add the main code
+    bundlescript = bundlescript .. "\n" .. entrycode
+
+    return bundlescript
+end
+
+print("----------[ START ]----------")
+-- Start the bundler process
+local ec, ml = bundlify(entry)
+local bundle = merge(ec, ml)
+
+print("------[ PRECOMPRESSED ]------")
+print(bundle)
+print("------[ PRECOMPRESSED ]------")
+
+-- Minify the bundle
+local bundle_min = minifylib.minify(bundle)
+
+-- Export the bundle
+writeFile(output, bundle_min)

@@ -1,6 +1,6 @@
 print("Starting test!")
-local m1 = require("m1")
-local m2 = require("m2")
+local m1 = require("module1")
+local m2 = require("module2")
 print("modules imported")
 local name = m1["getRandomName"]()
 print("module1's method called")
