@@ -83,6 +83,12 @@ function dropLastPathValue(pathStr)
     return result
 end
 
+function preprocessCode(code)
+    code = code:gsub("%-%-.-\n", "") -- remove single line comments
+    code = code:gsub("%-%-%[%[[.\n]-%]%]", "") -- remove multi-line comments
+    return code
+end
+
 function bundlify(entryPath)
     local moduleLookupTable = {
         -- ["a1"] = "~/path/to/file.lua"
@@ -100,6 +106,9 @@ function bundlify(entryPath)
         end
 
         local code = readFile(filepath)
+
+        code = preprocessCode(code)
+
         -- find any 'require("somepath")' statments
         for requiredModule in code:gmatch('require%("(.-)"%)') do
             print("Found require statement in \"" .. filepath .. "\" => 'require(\"" .. requiredModule .. "\")")
