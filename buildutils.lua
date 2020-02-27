@@ -138,13 +138,13 @@ function bundlify(entryPath)
             local replace = 'require("' .. replacementID .. '")'
             local pattrf = 'require%("' .. requiredModule .. '"%)'
             local pattrt = 'require("' .. replacementID .. '")'
-            print("FIND PATTERN: " .. pattrf)
-            print("REPLACE PATTERN: " .. pattrt)
+            --print("FIND PATTERN: " .. pattrf)
+            --print("REPLACE PATTERN: " .. pattrt)
             code = code:gsub(pattrf, pattrt)
-            print("Replaced '" .. search .. "' with '" .. replace .. "' in \"" .. filepath .. "\"!")
-            print("----------[ PATCHED OUTPUT ]----------")
-            print(code)
-            print("----------[ PATCHED OUTPUT ]----------")
+            --print("Replaced '" .. search .. "' with '" .. replace .. "' in \"" .. filepath .. "\"!")
+            --print("----------[ PATCHED OUTPUT ]----------")
+            --print(code)
+            --print("----------[ PATCHED OUTPUT ]----------")
         end
 
         return code
@@ -190,11 +190,6 @@ function merge(entrycode, modules)
     modtable = modtable .. "}"
     bundlescript = bundlescript
 
-    -- add the bundlescript import method
-
-
-    -- bundlescript = bundlescript .. "local bsr = function(name) return assert(load(assert(_MODULES_[name], \"Bundled module not found!\")), \"Unable to load module script!\")() end\nrequire=bsr\n"
-
     -- add the main code
     bundlescript = bundlescript .. "\n" .. entrycode
 
@@ -208,14 +203,14 @@ function addHeader(script, modtable)
     return header .. script
 end
 
-print("----------[ START ]----------")
+-- print("----------[ START ]----------")
 -- Start the bundler process
 local ec, ml = bundlify(entry)
 local bundle, mt = merge(ec, ml)
 
-print("------[ PRECOMPRESSED ]------")
-print(bundle)
-print("------[ PRECOMPRESSED ]------")
+-- print("------[ PRECOMPRESSED ]------")
+-- print(bundle)
+-- print("------[ PRECOMPRESSED ]------")
 
 -- Minify the bundle
 local bundle_min = minifylib.minify(bundle)
