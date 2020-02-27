@@ -87,6 +87,7 @@ function bundlify(entryPath)
     local moduleLookupTable = {
         -- ["a1"] = "~/path/to/file.lua"
     }
+    local humanNameLookupTree = {}
     local modules = {}
     local toImport = {}
     local currentModuleID = 1
@@ -130,6 +131,9 @@ function bundlify(entryPath)
                 replacementID = intToBundleID(currentModuleID)
                 currentModuleID = currentModuleID + 1
                 moduleLookupTable[replacementID] = targetModulePath
+                local pathsegs = splitFilePath(requiredModule)
+                print("Added reverse lookup! (HUMAN:\"" .. pathsegs[#pathsegs] .. "\") => (ID:\"" .. replacementID .. "\")")
+                humanNameLookupTree[pathsegs[#pathsegs]] = replacementID
                 table.insert(toImport, replacementID) 
             end
 
@@ -160,7 +164,7 @@ function bundlify(entryPath)
         ID = table.remove(toImport)
     end
 
-    return fixedEntry, modules
+    return fixedEntry, modules, humanNameLookupTree
 end
 
 function santiseString(str)
@@ -175,7 +179,7 @@ local _MODULES_ = {["MODULEID"]="LUA CODE AS STRING"}
 function bunreq(name) return load(assert(_MODULES_[name], "Bundled module not found!"))() end
 -- WORKSPACE
 
-function merge(entrycode, modules)
+function merge(entrycode, modules, humanTable)
     local bundlescript = ""
 
     -- build the module table
@@ -188,25 +192,46 @@ function merge(entrycode, modules)
         modtable = modtable .. "[\"" .. santiseString(moduleID) .. "\"]=\"" .. mout .. "\","
     end
     modtable = modtable .. "}"
-    bundlescript = bundlescript
+    
+    -- build the human name lookup table
+    local hnlt = "local _H={"
+    for humanName, ID in pairs(humanTable) do
+        hnlt = hnlt .. "[\"" .. santiseString(humanName) .. "\"]=\"" .. ID .. "\","
+    end
+    hnlt = hnlt .. "}"
 
     -- add the main code
     bundlescript = bundlescript .. "\n" .. entrycode
 
-    return bundlescript, modtable
+    return bundlescript, modtable, hnlt
 end
 
-function addHeader(script, modtable)
+--[[
+function require(_n)
+    return assert(
+        load(
+            assert(
+                (_M[_n] or _H[_n]),
+                "Bundled module not found!"
+            )
+        ),
+        "Unable to load module script!"
+    )()
+end;
+]]
+
+function addHeader(script, modtable, humanLookup)
     local header = modtable
-    header = header .. " " .. "function require(_n)return assert(load(assert(_M[_n],\"Bundled module not found!\")),\"Unable to load module script!\")()end;"
+    header = header .. " " .. humanLookup
+    header = header .. " " .. "function require(_n)return assert(load(assert((_M[_n] or _M[_H[_n]]),\"Bundled module not found!\")),\"Unable to load module script!\")()end;"
 
     return header .. script
 end
 
 -- print("----------[ START ]----------")
 -- Start the bundler process
-local ec, ml = bundlify(entry)
-local bundle, mt = merge(ec, ml)
+local ec, ml, hlt = bundlify(entry)
+local bundle, mt, phlt = merge(ec, ml, hlt)
 
 -- print("------[ PRECOMPRESSED ]------")
 -- print(bundle)
@@ -214,7 +239,7 @@ local bundle, mt = merge(ec, ml)
 
 -- Minify the bundle
 local bundle_min = minifylib.minify(bundle)
-bundle_min = addHeader(bundle_min, mt)
+bundle_min = addHeader(bundle_min, mt, phlt)
 
 -- Export the bundle
 writeFile(output, bundle_min)
